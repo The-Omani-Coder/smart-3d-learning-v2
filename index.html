@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="normal">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart 3D Learning</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-orbs"><i></i><i></i><i></i></div>
+
+<header class="topbar glass">
+  <div class="logo"><span class="logo-mark">3D</span><b>Smart 3D Learning</b></div>
+  <div class="tools">
+    <select id="langSel" aria-label="Language">
+      <option value="ar">العربية</option>
+      <option value="en">English</option>
+      <option value="ur">اردو</option>
+      <option value="fr">Français</option>
+    </select>
+    <select id="themeSel" aria-label="Theme">
+      <option value="normal" data-k="th_normal"></option>
+      <option value="protan" data-k="th_protan"></option>
+      <option value="tritan" data-k="th_tritan"></option>
+      <option value="mono" data-k="th_mono"></option>
+    </select>
+    <button id="voiceBtn" class="btn ghost" data-k="voiceSection">♿</button>
+    <button id="logoutBtn" class="btn ghost hidden" data-k="logout"></button>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<!-- Voice / accessibility panel -->
+<aside id="voicePanel" class="glass hidden">
+  <h3 data-k="voiceSection"></h3>
+  <p data-k="voiceHelp"></p>
+  <div class="vgrid">
+    <button class="btn big" id="vRead" data-k="readPage"></button>
+    <button class="btn big" id="vListen" data-k="listenCmd"></button>
+    <button class="btn big" id="vStop" data-k="stopVoice"></button>
+    <button class="btn big" id="vFont" data-k="bigText"></button>
+  </div>
+  <div id="vStatus" class="muted"></div>
+</aside>
+
+<!-- Floating chatbot -->
+<button id="chatFab" class="fab" aria-label="AI">🤖</button>
+<section id="chat" class="glass hidden">
+  <div class="chat-head"><b data-k="aiName"></b><button id="chatClose" class="x">×</button></div>
+  <div id="chatLog"></div>
+  <div class="chat-in">
+    <button id="chatMic" class="btn ghost" title="Speech to text">🎤</button>
+    <input id="chatInput" data-kp="chatPh">
+    <button id="chatSend" class="btn">➤</button>
+  </div>
+  <label class="chat-tts"><input type="checkbox" id="chatTTS" checked> <span data-k="speakReplies"></span></label>
+</section>
+
+<div id="modal" class="modal hidden"><div class="modal-box glass"><button id="modalClose" class="x">×</button><div id="modalBody"></div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="lab.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
