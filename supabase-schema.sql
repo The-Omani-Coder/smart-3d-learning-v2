@@ -280,4 +280,4 @@ do $$ begin
 end $$;
 
 -- Primary administrator allowlist entry.
-insert into public.admin_allowlist(email) values (lower('anofli2015@gmail.com')) on conflict do nothing;
+insert into public.admin_allowlist(email) values (lower('refoo5933@gmail.com')) on conflict do nothing;
