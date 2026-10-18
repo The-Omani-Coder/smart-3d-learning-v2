@@ -1,7 +1,7 @@
 /* =========================================================
    Smart 3D Learning — lab.js  (المختبر التفاعلي / غرف الـ3D)
    - المعلم/المشرف يرفع مجسم GLB/GLTF من جهازه ويحدد المادة والصف.
-   - ملفات المجسمات تُحفظ في IndexedDB (مساحة أكبر من localStorage)،
+   - ملفات المجسمات تُحفظ في Supabase Storage، أو IndexedDB في الوضع المحلي،
      وبياناتها (الاسم، المادة، الصف…) في DB.lab داخل قاعدة المنصة.
    - يعتمد على المتغيرات العامة في script.js (DB, t, app, esc, save, render…)
    ========================================================= */
@@ -72,14 +72,17 @@ const LabFiles = {
     });
   },
   async put(k, blob) {
+    if (window.S3DCloud && S3DCloud.enabled) return S3DCloud.putModel(k, blob);
     const db = await this.open();
     return new Promise((res, rej) => { const tx = db.transaction('f', 'readwrite'); tx.objectStore('f').put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
   },
   async get(k) {
+    if (window.S3DCloud && S3DCloud.enabled) return S3DCloud.getModel(k);
     const db = await this.open();
     return new Promise((res, rej) => { const rq = db.transaction('f').objectStore('f').get(k); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
   },
   async del(k) {
+    if (window.S3DCloud && S3DCloud.enabled) return S3DCloud.deleteModel(k);
     const db = await this.open();
     return new Promise((res, rej) => { const tx = db.transaction('f', 'readwrite'); tx.objectStore('f').delete(k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
   },
@@ -115,10 +118,13 @@ const quizToText = q => (q || []).map(x => [x.q, ...x.o, x.a + 1, x.e].join(' | 
    ========================================================= */
 function labManager() {
   ensureLab();
+  const managed = session && session.role === 'teacher'
+    ? DB.lab.filter(x => x.createdBy === session.id || x.by === `teacher:${session.id}`)
+    : DB.lab;
   const f = labUI.form;
-  const cur = f && f.id ? (DB.lab.find(x => x.id === f.id) || {}) : {};
+  const cur = f && f.id ? (managed.find(x => x.id === f.id) || {}) : {};
   const subjName = k => SUBJ[k] ? sName(k) : k;
-  const list = DB.lab.length ? DB.lab.map(m => `<div class="item"><div><b>${esc(m.title)}</b>
+  const list = managed.length ? managed.map(m => `<div class="item"><div><b>${esc(m.title)}</b>
       <span class="badge">${esc(subjName(m.subject))}</span> <span class="badge">${m.grade === 'all' ? lt('allGrades') : gradeLabel(m.grade)}</span>
       ${m.published === false ? `<span class="badge">${lt('hidden')}</span>` : ''}</div>
       <div><button class="btn sm ghost" data-lab-open="${m.id}">${t('open')}</button>
@@ -150,8 +156,8 @@ async function labSave() {
   if (!old.id && !file) return msg(lt('needFile'));
   if (file && file.size > 60e6) return msg(lt('tooBig'));
   const id = old.id || uid();
-  const fileKey = old.fileKey || ('lab_' + id);
-  try { if (file) await LabFiles.put(fileKey, file); } catch (e) { return msg('IndexedDB error: ' + e); }
+  const fileKey = old.fileKey || ((window.S3DCloud && S3DCloud.enabled) ? `models/${session.id}/${id}` : ('lab_' + id));
+  try { if (file) await LabFiles.put(fileKey, file); } catch (e) { return msg('Storage error: ' + (e.message || e)); }
   const rec = {
     id, title, subject: $('#lb_sub').value, grade: $('#lb_grade').value, desc: $('#lb_desc').value.trim(),
     partsText: $('#lb_parts').value, vars: parseVars($('#lb_vars').value), quiz: parseQuiz($('#lb_quiz').value),
