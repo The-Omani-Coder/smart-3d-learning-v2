@@ -1,7 +1,6 @@
 /* =========================================================
    Smart 3D Learning — script.js
-   كل البيانات تُحفظ في المتصفح (localStorage).
-   كلمة مرور المشرف الافتراضية: Admin@3D2026  (غيّرها من لوحة المشرف > الإعدادات)
+   يعمل مع Supabase عند ضبط supabase-config.js، ويعود للتخزين المحلي للتجربة فقط.
    ========================================================= */
 'use strict';
 
@@ -9,6 +8,7 @@
 const KEY = 's3d_db_v1', SESSION = 's3d_session_v1';
 const TOTAL_SLOTS = 120;
 const DEFAULT_ADMIN = 'Admin@3D2026';
+const cloudOn = () => !!(window.S3DCloud && S3DCloud.enabled);
 
 function hash(s) { // بسيط (واجهة فقط) — للإنتاج الحقيقي استخدم خادم
   let h1 = 5381, h2 = 52711;
@@ -22,8 +22,17 @@ function load() {
   } catch (e) {}
   return { users: [], teachers: [], grades: [], slots: {}, adminHash: hash(DEFAULT_ADMIN) };
 }
-let DB = load();
+let DB = cloudOn() ? S3DCloud.emptyDB() : load();
 function save() {
+  if (cloudOn()) {
+    S3DCloud.queueSave(DB, session, (e) => {
+      console.error(e);
+      const target = $('#a_msg') || $('#c_msg') || $('#lb_msg') || $('#s_msg');
+      if (target) target.textContent = '⚠ ' + (e.message || e);
+      else alert((lang === 'ar' ? 'تعذر حفظ التغييرات: ' : 'Could not save changes: ') + (e.message || e));
+    });
+    return true;
+  }
   try { localStorage.setItem(KEY, JSON.stringify(DB)); return true; }
   catch (e) { alert('Storage full / المساحة ممتلئة — استخدم ملفاً أصغر'); return false; }
 }
@@ -193,10 +202,12 @@ const TT = {
   ar: { regTeacher: 'إنشاء حساب معلم', pass2: 'تأكيد كلمة المرور', langLbl: 'لغة الواجهة', gradesLbl: 'الصفوف التي تدرّسها', semsLbl: 'الفصول الدراسية',
         subjLbl: 'المواد التي تدرّسها', all: 'تحديد الكل', passShort: 'كلمة المرور يجب ألا تقل عن 6 أحرف', passMis: 'كلمتا المرور غير متطابقتين',
         badEmail: 'البريد الإلكتروني غير صحيح', needGrade: 'اختر صفاً واحداً على الأقل', needSem: 'اختر فصلاً واحداً على الأقل', needSubj: 'اختر مادة واحدة على الأقل',
+        invite: 'رمز دعوة المعلم', inviteHelp: 'ينشئ المشرف هذا الرمز من لوحة المعلمين.', pending: 'تم إنشاء الحساب. افتح رسالة تأكيد البريد ثم سجّل الدخول.',
         myClasses: 'صفوفي', noStudents: 'لا يوجد طلاب مسجلون في صفوفك وفصولك حتى الآن.' },
   en: { regTeacher: 'Create teacher account', pass2: 'Confirm password', langLbl: 'Interface language', gradesLbl: 'Grades you teach', semsLbl: 'Semesters',
         subjLbl: 'Subjects you teach', all: 'Select all', passShort: 'Password must be at least 6 characters', passMis: 'Passwords do not match',
         badEmail: 'Invalid email address', needGrade: 'Pick at least one grade', needSem: 'Pick at least one semester', needSubj: 'Pick at least one subject',
+        invite: 'Teacher invitation code', inviteHelp: 'The administrator creates this code in the Teachers panel.', pending: 'Account created. Confirm your email, then sign in.',
         myClasses: 'My classes', noStudents: 'No students registered in your grades and semesters yet.' },
 };
 const tt = k => (TT[lang] && TT[lang][k] != null) ? TT[lang][k] : (TT.en[k] != null ? TT.en[k] : k);
@@ -205,6 +216,7 @@ function teacherRegForm() {
   const chk = (name, val, label) => `<label class="chk"><input type="checkbox" name="${name}" value="${val}"> ${label}</label>`;
   return `<label>${t('name')}</label><input id="f_name" autocomplete="name">
     <label>${t('email')}</label><input id="f_email" type="email" autocomplete="email">
+    ${cloudOn() ? `<label>${tt('invite')}</label><input id="f_invite" autocomplete="one-time-code"><div class="muted">${tt('inviteHelp')}</div>` : ''}
     <div class="row"><div><label>${t('password')}</label><input id="f_pass" type="password" autocomplete="new-password"></div>
     <div><label>${tt('pass2')}</label><input id="f_pass2" type="password" autocomplete="new-password"></div></div>
     <label>${tt('langLbl')}</label>
@@ -217,11 +229,12 @@ function teacherRegForm() {
     <label>${tt('subjLbl')} <a href="#" data-all="tsub" style="color:var(--a1)">${tt('all')}</a></label>
     <div class="checks">${Object.keys(SUBJ).map(k => chk('tsub', k, SUBJ[k][0] + ' ' + esc(sName(k)))).join('')}</div>`;
 }
-function registerTeacher(v) {
+async function registerTeacher(v) {
   const name = v('f_name'), email = v('f_email'), pass = $('#f_pass').value, pass2 = $('#f_pass2').value;
+  const inviteCode = v('f_invite');
   const vals = n => [...document.querySelectorAll(`input[name="${n}"]:checked`)].map(x => x.value);
   const grades = vals('tg').map(Number), sems = vals('ts').map(Number), subjects = vals('tsub');
-  if (!name || !email || !pass) authMsg = t('fill');
+  if (!name || !email || !pass || (cloudOn() && !inviteCode)) authMsg = t('fill');
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) authMsg = tt('badEmail');
   else if (pass.length < 6) authMsg = tt('passShort');
   else if (pass !== pass2) authMsg = tt('passMis');
@@ -229,6 +242,16 @@ function registerTeacher(v) {
   else if (!sems.length) authMsg = tt('needSem');
   else if (!subjects.length) authMsg = tt('needSubj');
   else if (DB.teachers.some(x => x.email.toLowerCase() === email.toLowerCase())) authMsg = t('exists');
+  else if (cloudOn()) {
+    try {
+      const result = await S3DCloud.signUpTeacher({ name, email, password: pass, inviteCode, lang: $('#f_lang').value, grades, sems, subjects });
+      if (result.pending) { authMode = 'login'; authMsg = tt('pending'); return renderAuth(); }
+      applyCloudState(result);
+      lang = $('#f_lang').value; localStorage.setItem('s3d_lang', lang); $('#langSel').value = lang;
+      S3DCloud.subscribe((state) => { applyCloudState(state); render(); });
+      view = {}; authMode = 'login'; return render();
+    } catch (e) { authMsg = cloudErrorText(e); }
+  }
   else {
     const th = { id: uid(), name, email, pass: hash(pass), lang: $('#f_lang').value, grades, sems, subjects, created: Date.now() };
     DB.teachers.push(th); save();
@@ -255,15 +278,17 @@ function renderAuth() {
   } else if (authTab === 'parent') form = `<label>${t('parentCode')}</label><input id="f_code" placeholder="P-123456">`;
   else if (authTab === 'teacher') form = authMode === 'register' ? teacherRegForm()
     : `<label>${t('email')}</label><input id="f_email" type="email"><label>${t('password')}</label><input id="f_pass" type="password">`;
-  else form = `<label>🔐 ${t('adminPass')}</label><input id="f_admin" type="password" autocomplete="current-password">`;
+  else form = cloudOn()
+    ? `${authMode === 'register' ? `<label>${t('name')}</label><input id="f_name" autocomplete="name">` : ''}<label>${t('email')}</label><input id="f_email" type="email" autocomplete="email"><label>${t('password')}</label><input id="f_pass" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}">`
+    : `<label>🔐 ${t('adminPass')}</label><input id="f_admin" type="password" autocomplete="current-password">`;
 
   app.innerHTML = `<div class="auth glass">
     <h1>Smart 3D Learning</h1><div class="muted">${t('welcome')}</div>
     <div class="tabs">${tabs.map(x => `<button class="tab ${x === authTab ? 'on' : ''}" data-tab="${x}">${t(x)}</button>`).join('')}</div>
     ${form}
     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-      <button class="btn" id="goBtn">${(authTab === 'student' || authTab === 'teacher') && authMode === 'register' ? (authTab === 'teacher' ? tt('regTeacher') : t('register')) : t('login')}</button>
-      ${authTab === 'student' || authTab === 'teacher' ? `<button class="btn ghost" id="swapBtn">${authMode === 'login' ? t('register') : t('haveAcc')}</button>` : ''}
+      <button class="btn" id="goBtn">${authMode === 'register' && (authTab === 'student' || authTab === 'teacher' || (authTab === 'admin' && cloudOn())) ? (authTab === 'teacher' ? tt('regTeacher') : t('register')) : t('login')}</button>
+      ${authTab === 'student' || authTab === 'teacher' || (authTab === 'admin' && cloudOn()) ? `<button class="btn ghost" id="swapBtn">${authMode === 'login' ? t('register') : t('haveAcc')}</button>` : ''}
     </div>
     ${authMsg ? `<div class="msg">${authMsg}</div>` : ''}
   </div>`;
@@ -277,9 +302,62 @@ function renderAuth() {
   $('#goBtn').onclick = doAuth;
   app.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') doAuth(); });
 }
-function doAuth() {
+function applyCloudState(result) {
+  DB = result.db || S3DCloud.emptyDB();
+  setSession(result.session || null);
+}
+function cloudErrorText(error) {
+  const raw = String((error && error.message) || error || '');
+  if (/invalid login credentials/i.test(raw)) return t('bad');
+  if (/already registered|already exists/i.test(raw)) return t('exists');
+  if (/database error saving new user/i.test(raw)) {
+    if (authTab === 'teacher') return lang === 'ar' ? 'تعذر إنشاء حساب المعلم. تحقق من البريد ورمز الدعوة.' : 'Could not create the teacher account. Check the email and invitation code.';
+    if (authTab === 'admin') return lang === 'ar' ? 'تعذر إنشاء حساب المشرف. تحقق أن البريد موجود في قائمة السماح.' : 'Could not create the admin account. Check that the email is allowlisted.';
+  }
+  if (/role_mismatch/i.test(raw)) return lang === 'ar' ? 'نوع الحساب لا يطابق بوابة الدخول.' : 'This account does not match the selected role.';
+  if (/teacher invite|invite|invalid_teacher/i.test(raw)) return lang === 'ar' ? 'رمز الدعوة غير صحيح أو مستخدم.' : 'The invitation code is invalid or already used.';
+  if (/allowlist|not_allowlisted/i.test(raw)) return lang === 'ar' ? 'هذا البريد غير مصرح له كحساب مشرف.' : 'This email is not allowed to create an admin account.';
+  return raw || t('bad');
+}
+async function doAuth() {
   const v = id => ($('#' + id)?.value || '').trim();
   authMsg = '';
+  if (cloudOn()) {
+    const button = $('#goBtn'); if (button) button.disabled = true;
+    try {
+      let result;
+      if (authTab === 'admin') {
+        if (!v('f_email') || !v('f_pass') || (authMode === 'register' && !v('f_name'))) throw new Error(t('fill'));
+        if (authMode === 'register' && v('f_pass').length < 6) throw new Error(tt('passShort'));
+        result = authMode === 'register'
+          ? await S3DCloud.signUpAdmin({ name: v('f_name'), email: v('f_email'), password: v('f_pass') })
+          : await S3DCloud.signIn(v('f_email'), v('f_pass'), 'admin');
+      } else if (authTab === 'teacher') {
+        if (authMode === 'register') return await registerTeacher(v);
+        result = await S3DCloud.signIn(v('f_email'), v('f_pass'), 'teacher');
+      } else if (authTab === 'parent') {
+        result = await S3DCloud.parentLogin(v('f_code'));
+      } else if (authMode === 'login') {
+        result = await S3DCloud.signIn(v('f_email'), v('f_pass'), 'student');
+      } else {
+        const name = v('f_name'), email = v('f_email'), pass = v('f_pass'), grade = +v('f_grade');
+        if (!name || !email || !pass) throw new Error(t('fill'));
+        if (pass.length < 6) throw new Error(tt('passShort'));
+        result = await S3DCloud.signUpStudent({ name, email, password: pass, grade, sem: +v('f_sem'), track: grade >= 11 ? v('f_track') : null });
+      }
+      if (result.pending) { authMode = 'login'; authMsg = tt('pending'); return renderAuth(); }
+      applyCloudState(result); view = {}; authMode = 'login';
+      if (session && session.role === 'teacher') {
+        const th = DB.teachers.find((x) => x.id === session.id);
+        if (th && th.lang) { lang = th.lang; localStorage.setItem('s3d_lang', lang); $('#langSel').value = lang; }
+      }
+      S3DCloud.subscribe((state) => { applyCloudState(state); render(); });
+      return render();
+    } catch (e) {
+      authMsg = cloudErrorText(e);
+      return renderAuth();
+    }
+  }
   if (authTab === 'admin') {
     if (hash(v('f_admin')) === DB.adminHash) { setSession({ role: 'admin' }); view = {}; return render(); }
     authMsg = t('bad');
@@ -518,18 +596,24 @@ function bindContent() {
   app.querySelectorAll('[data-cview]').forEach(b => b.onclick = () => openSlot(b.dataset.cview));
   app.querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => { if (confirm(t('del') + '?')) { delete DB.slots[b.dataset.cdel]; save(); renderAdmin(); } });
   const cc = $('#c_cancel'); if (cc) cc.onclick = () => { adm.form = null; renderAdmin(); };
-  const sv = $('#c_save'); if (sv) sv.onclick = () => {
+  const sv = $('#c_save'); if (sv) sv.onclick = async () => {
     const title = $('#c_title').value.trim(); if (!title) return $('#c_msg').textContent = t('fill');
     const f = adm.form, old = f.n ? DB.slots[f.n] : {}, file = $('#c_file').files[0];
     const finish = (dataUrl, fname) => {
       let n = f.n; if (!n) { n = 1; while (DB.slots[n]) n++; }
       DB.slots[n] = { type: f.type, title, subject: adm.subject, grade: $('#c_all').checked ? 'all' : adm.grade, sem: adm.sem,
-        body: $('#c_body').value, url: dataUrl || $('#c_url').value.trim() || (old.url && old.url.startsWith('data:') ? old.url : ''),
+        body: $('#c_body').value, url: dataUrl || $('#c_url').value.trim() || old.url || '',
         fileName: fname || old.fileName || '', shape: $('#c_shape') ? $('#c_shape').value : 0, color: $('#c_color') ? $('#c_color').value : '#22d3ee', published: true };
       if (save()) { adm.form = null; renderAdmin(); }
     };
-    if (file) { if (file.size > 3e6) return $('#c_msg').textContent = t('fileTooBig'); const r = new FileReader(); r.onload = () => finish(r.result, file.name); r.readAsDataURL(file); }
-    else finish('');
+    if (!file) return finish('');
+    if (file.size > 3e6) return $('#c_msg').textContent = t('fileTooBig');
+    if (cloudOn()) {
+      try { sv.disabled = true; finish(await S3DCloud.uploadContent(file, `content/${adm.grade}/${adm.subject}`), file.name); }
+      catch (e) { sv.disabled = false; $('#c_msg').textContent = '⚠ ' + (e.message || e); }
+    } else {
+      const r = new FileReader(); r.onload = () => finish(r.result, file.name); r.readAsDataURL(file);
+    }
   };
 }
 
@@ -554,10 +638,12 @@ function adminSlots() {
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" id="a_save">${t('save')}</button><button class="btn danger" id="a_del">${t('clear')}</button><span id="a_msg" class="muted"></span></div></div>`;
 }
 function adminTeachers() {
+  const invites = cloudOn() ? (DB.teacherInvites || []).filter((x) => !x.claimed_at).map((x) => `<div class="item"><div>✉️ ${esc(x.name || '')} — ${esc(x.email)}<div class="muted">${lang === 'ar' ? 'رمز الدعوة' : 'Invitation code'}: <code>${esc(x.invite_code)}</code></div></div><button class="btn sm danger" data-invdel="${x.id}">${t('del')}</button></div>`).join('') : '';
   return `<div class="panel glass"><h3>${t('addTeacher')}</h3>
     <div class="row"><div><label>${t('name')}</label><input id="th_name"></div><div><label>${t('email')}</label><input id="th_email" type="email"></div></div>
-    <label>${t('password')}</label><input id="th_pass" type="text"><button class="btn" id="th_add" style="margin-top:12px">${t('add')}</button> <span id="th_msg" class="muted"></span></div>
-    ${DB.teachers.map(x => `<div class="item"><div>👩‍🏫 ${esc(x.name)} — ${esc(x.email)}${x.grades && x.grades.length ? `<div class="muted">${x.grades.join('، ')} | ${(x.sems || []).join('، ')} | ${(x.subjects || []).filter(k => SUBJ[k]).map(k => sName(k)).join('، ')}</div>` : ''}</div><button class="btn sm danger" data-thdel="${x.id}">${t('del')}</button></div>`).join('')}`;
+    ${cloudOn() ? `<div class="muted">${lang === 'ar' ? 'سيظهر رمز دعوة ترسله للمعلم؛ المعلم يختار كلمة مروره بنفسه.' : 'An invitation code will be created; the teacher chooses their own password.'}</div>` : `<label>${t('password')}</label><input id="th_pass" type="text">`}
+    <button class="btn" id="th_add" style="margin-top:12px">${t('add')}</button> <span id="th_msg" class="muted"></span></div>
+    ${invites}${DB.teachers.map(x => `<div class="item"><div>👩‍🏫 ${esc(x.name)} — ${esc(x.email)}${x.grades && x.grades.length ? `<div class="muted">${x.grades.join('، ')} | ${(x.sems || []).join('، ')} | ${(x.subjects || []).filter(k => SUBJ[k]).map(k => sName(k)).join('، ')}</div>` : ''}</div><button class="btn sm danger" data-thdel="${x.id}">${t('del')}</button></div>`).join('')}`;
 }
 function adminUsers() {
   return DB.users.length ? `<div class="panel glass"><table><tr><th>${t('name')}</th><th>${t('email')}</th><th>${t('grade')}</th><th>${t('parentCode')}</th><th></th></tr>
@@ -567,7 +653,7 @@ function adminSettings() {
   return `<div class="panel glass"><h3>🔐 ${t('changePass')}</h3><label>${t('password')}</label><input id="s_pass" type="password">
     <button class="btn" id="s_chg" style="margin-top:12px">${t('save')}</button> <span id="s_msg" class="muted"></span></div>
     <div class="panel glass"><button class="btn ghost" id="s_exp">⬇ ${t('export')}</button>
-    <label>${t('import')}</label><input id="s_imp" type="file" accept=".json">
+    ${cloudOn() ? '' : `<label>${t('import')}</label><input id="s_imp" type="file" accept=".json">`}
     <hr style="border-color:var(--line);margin:16px 0"><button class="btn danger" id="s_reset">${t('reset')}</button></div>`;
 }
 function bindAdmin() {
@@ -575,32 +661,52 @@ function bindAdmin() {
   if (adminTab === 'lab') bindLabManager();
   const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = fn; };
   app.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { selSlot = +b.dataset.slot; renderAdmin(); });
-  on('a_save', () => {
+  on('a_save', async () => {
     const title = $('#a_title').value.trim(); if (!title) return $('#a_msg').textContent = t('fill');
     const old = DB.slots[selSlot] || {};
     const file = $('#a_file').files[0];
     const finish = dataUrl => {
       DB.slots[selSlot] = { type: $('#a_type').value, title, grade: $('#a_grade').value, subject: $('#a_sub').value, sem: $('#a_sem').value,
-        body: $('#a_body').value, url: dataUrl || $('#a_url').value.trim() || (old.url && old.url.startsWith('data:') ? old.url : ''),
+        body: $('#a_body').value, url: dataUrl || $('#a_url').value.trim() || old.url || '',
         shape: $('#a_shape').value, color: $('#a_color').value, published: $('#a_pub').value === '1' };
       if (save()) renderAdmin();
     };
-    if (file) { if (file.size > 3e6) return $('#a_msg').textContent = '> 3MB'; const r = new FileReader(); r.onload = () => finish(r.result); r.readAsDataURL(file); }
-    else finish('');
+    if (!file) return finish('');
+    if (file.size > 3e6) return $('#a_msg').textContent = '> 3MB';
+    if (cloudOn()) {
+      try { finish(await S3DCloud.uploadContent(file, `slots/${selSlot}`)); }
+      catch (e) { $('#a_msg').textContent = '⚠ ' + (e.message || e); }
+    } else {
+      const r = new FileReader(); r.onload = () => finish(r.result); r.readAsDataURL(file);
+    }
   });
   on('a_del', () => { delete DB.slots[selSlot]; save(); renderAdmin(); });
-  on('th_add', () => {
-    const name = $('#th_name').value.trim(), email = $('#th_email').value.trim(), pass = $('#th_pass').value;
-    if (!email || !pass) return $('#th_msg').textContent = t('fill');
+  on('th_add', async () => {
+    const name = $('#th_name').value.trim(), email = $('#th_email').value.trim(), pass = $('#th_pass') ? $('#th_pass').value : '';
+    if (!email || (!cloudOn() && !pass)) return $('#th_msg').textContent = t('fill');
     if (DB.teachers.some(x => x.email.toLowerCase() === email.toLowerCase())) return $('#th_msg').textContent = t('exists');
+    if (cloudOn()) {
+      try { const row = await S3DCloud.createTeacherInvite({ name, email }); DB.teacherInvites.unshift(row); renderAdmin(); }
+      catch (e) { $('#th_msg').textContent = '⚠ ' + (e.message || e); }
+      return;
+    }
     DB.teachers.push({ id: uid(), name, email, pass: hash(pass) }); save(); renderAdmin();
   });
-  app.querySelectorAll('[data-thdel]').forEach(b => b.onclick = () => { DB.teachers = DB.teachers.filter(x => x.id !== b.dataset.thdel); save(); renderAdmin(); });
-  app.querySelectorAll('[data-udel]').forEach(b => b.onclick = () => { DB.users = DB.users.filter(x => x.id !== b.dataset.udel); DB.grades = DB.grades.filter(g => g.studentId !== b.dataset.udel); save(); renderAdmin(); });
-  on('s_chg', () => { const p = $('#s_pass').value; if (p.length < 6) return $('#s_msg').textContent = '≥ 6'; DB.adminHash = hash(p); save(); $('#s_msg').textContent = t('saved'); });
+  app.querySelectorAll('[data-invdel]').forEach(b => b.onclick = async () => { if (!confirm(t('del') + '?')) return; await S3DCloud.deleteTeacherInvite(b.dataset.invdel); DB.teacherInvites = DB.teacherInvites.filter(x => x.id !== b.dataset.invdel); renderAdmin(); });
+  app.querySelectorAll('[data-thdel]').forEach(b => b.onclick = async () => {
+    if (!confirm(t('del') + '?')) return;
+    if (cloudOn()) { await S3DCloud.deleteUser(b.dataset.thdel); applyCloudState(await S3DCloud.boot(session)); return renderAdmin(); }
+    DB.teachers = DB.teachers.filter(x => x.id !== b.dataset.thdel); save(); renderAdmin();
+  });
+  app.querySelectorAll('[data-udel]').forEach(b => b.onclick = async () => {
+    if (!confirm(t('del') + '?')) return;
+    if (cloudOn()) { await S3DCloud.deleteUser(b.dataset.udel); applyCloudState(await S3DCloud.boot(session)); return renderAdmin(); }
+    DB.users = DB.users.filter(x => x.id !== b.dataset.udel); DB.grades = DB.grades.filter(g => g.studentId !== b.dataset.udel); save(); renderAdmin();
+  });
+  on('s_chg', async () => { const p = $('#s_pass').value; if (p.length < 6) return $('#s_msg').textContent = '≥ 6'; if (cloudOn()) await S3DCloud.changePassword(p); else { DB.adminHash = hash(p); save(); } $('#s_msg').textContent = t('saved'); });
   on('s_exp', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(DB)], { type: 'application/json' })); a.download = 'smart3d-backup.json'; a.click(); });
   const imp = $('#s_imp'); if (imp) imp.onchange = () => { const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (d.users) { DB = d; save(); renderAdmin(); } } catch (e) { alert('Invalid file'); } }; r.readAsText(imp.files[0]); };
-  on('s_reset', () => { if (confirm('?')) { DB = { users: [], teachers: [], grades: [], slots: {}, adminHash: hash(DEFAULT_ADMIN) }; save(); setSession(null); render(); } });
+  on('s_reset', async () => { if (confirm('?')) { if (cloudOn()) { await S3DCloud.resetData(); const state = await S3DCloud.boot(session); applyCloudState(state); renderAdmin(); } else { DB = { users: [], teachers: [], grades: [], slots: {}, adminHash: hash(DEFAULT_ADMIN) }; save(); setSession(null); render(); } } });
 }
 
 /* ---------- Voice (TTS / STT) ---------- */
@@ -673,11 +779,30 @@ $('#chatInput').onkeydown = e => { if (e.key === 'Enter') chatSend(); };
 $('#chatMic').onclick = e => listenOnce(txt => chatSend(txt), e.currentTarget);
 
 /* ---------- Global controls ---------- */
-function logout() { setSession(null); view = {}; authMsg = ''; render(); }
+async function logout() { if (cloudOn()) await S3DCloud.signOut(); setSession(null); DB = cloudOn() ? S3DCloud.emptyDB() : load(); view = {}; authMsg = ''; render(); }
 $('#logoutBtn').onclick = logout;
 $('#langSel').value = lang;
 $('#langSel').onchange = e => { lang = e.target.value; localStorage.setItem('s3d_lang', lang); render(); };
 const savedTheme = localStorage.getItem('s3d_theme') || 'normal';
 document.documentElement.dataset.theme = savedTheme; $('#themeSel').value = savedTheme;
 $('#themeSel').onchange = e => { document.documentElement.dataset.theme = e.target.value; localStorage.setItem('s3d_theme', e.target.value); };
-render();
+async function bootApp() {
+  if (window.S3DCloud && S3DCloud.configurationError) {
+    applyStatic();
+    app.innerHTML = `<div class="auth glass"><h2>⚠ Supabase</h2><div class="msg">${esc(S3DCloud.configurationError)}</div><div class="muted">${lang === 'ar' ? 'راجع ملف supabase-config.js واتصال الإنترنت.' : 'Check supabase-config.js and the internet connection.'}</div></div>`;
+    return;
+  }
+  if (!cloudOn()) return render();
+  applyStatic();
+  app.innerHTML = `<div class="auth glass"><h2>Smart 3D Learning</h2><div class="muted">${lang === 'ar' ? 'جارٍ الاتصال بقاعدة البيانات…' : 'Connecting to the database…'}</div></div>`;
+  try {
+    const state = await S3DCloud.boot(session);
+    applyCloudState(state || { db: S3DCloud.emptyDB(), session: null });
+    if (session && session.role !== 'parent') S3DCloud.subscribe((next) => { applyCloudState(next); render(); });
+  } catch (e) {
+    console.error(e); setSession(null); DB = S3DCloud.emptyDB(); authMsg = cloudErrorText(e);
+  }
+  render();
+}
+bootApp();
+
