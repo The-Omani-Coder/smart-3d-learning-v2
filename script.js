@@ -159,30 +159,4 @@ function applyStatic() {
   document.documentElement.lang = lang;
   document.documentElement.dir = RTL.includes(lang) ? 'rtl' : 'ltr';
   document.querySelectorAll('[data-k]').forEach(e => e.textContent = t(e.dataset.k));
-  document.querySelectorAll('[data-kp]').forEach(e => e.placeholder = t(e.dataset.kp));
-  $('#logoutBtn').classList.toggle('hidden', !session);
-}
-
-let view = {};
-function render() {
-  applyStatic();
-  if (!session) return renderAuth();
-  const r = session.role;
-  if (r === 'student') return renderStudent();
-  if (r === 'parent') return renderParent();
-  if (r === 'teacher') return renderTeacher();
-  if (r === 'admin') return renderAdmin();
-}
-
-let authTab = 'student', authMode = 'login', authMsg = '';
-function renderAuth() {
-  const tabs = ['student', 'parent', 'teacher', 'admin'];
-  let form = '';
-  if (authTab === 'student') {
-    form = authMode === 'login'
-      ? `<label>${t('email')}</label><input id="f_email" type="email"><label>${t('password')}</label><input id="f_pass" type="password">`
-      : `<label>${t('name')}</label><input id="f_name"><label>${t('email')}</label><input id="f_email" type="email"><label>${t('password')}</label><input id="f_pass" type="password">
-         <div class="row"><div><label>${t('grade')}</label><select id="f_grade">${gradeOptions(1)}</select></div>
-         <div><label>${t('semester')}</label><select id="f_sem"><option value="1">${t('sem1')}</option><option value="2">${t('sem2')}</option></select></div></div>
-         <div id="trackBox" class="hidden"><label>${t('track')}</label><select id="f_track"><option value="sci">${t('sci')}</option><option value="arts">${t('arts')}</option></select></div>`;
-  } else if (authTab ===
+  document.querySelectorAll('[data-kp]').forEach(e => e.placeholder = t(e.dataset
